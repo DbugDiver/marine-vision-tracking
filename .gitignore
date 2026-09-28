@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.pt
+*.pth
+*.onnx
+data/raw/
+outputs/
+runs/
+.DS_Store
+.idea/
+.vscode/
