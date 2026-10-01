@@ -36,12 +36,18 @@ def _sample_mask_points(mask: np.ndarray, k: int = 24) -> np.ndarray:
 
 @dataclass
 class NeuralConfig:
-    redetect_every: int = 24      # frames per segment (tracker re-init)
+    redetect_every: int = 48      # frames per segment (tracker re-init)
     points_per_obj: int = 24
     iou_thr: float = 0.2
     dist_thr: float = 120.0
-    max_age: int = 2              # segments, not frames
-    vis_thr: float = 0.6          # CoTracker visibility to count a point
+    max_age: int = 3              # segments, not frames
+    vis_thr: float = 0.5          # CoTracker visibility to count a point
+    carry_points: bool = True     # unmatched-but-alive tracks keep their own
+                                  # points as queries across a re-init: a boat
+                                  # YOLO misses at a segment boundary keeps its
+                                  # identity instead of minting a new id
+    box_pct: float = 8.0          # percentile box from points (min/max lets a
+                                  # single stray point balloon the box)
 
 
 @dataclass
@@ -118,14 +124,20 @@ class NeuralPipeline:
         det_mask_of_track, masks = self._detect_and_assign(first)
         res.masks = masks
 
-        # queries: per live track, points inside its mask on frame 0
+        # queries: per live track, points inside its mask on frame 0 - and
+        # for tracks the detector MISSED this boundary, their surviving points
+        # from the previous segment, so identity outlives a detection gap
         owners: list[int] = []
         pts: list[np.ndarray] = []
         for t in self.tracks:
             d_i = det_mask_of_track.get(t.track_id)
-            if d_i is None or d_i >= len(masks):
+            if d_i is not None and d_i < len(masks):
+                p = _sample_mask_points(masks[d_i], self.cfg.points_per_obj)
+            elif (self.cfg.carry_points and t.points is not None
+                  and len(t.points) >= 3):
+                p = t.points.astype(np.float32)
+            else:
                 continue
-            p = _sample_mask_points(masks[d_i], self.cfg.points_per_obj)
             owners += [t.track_id] * len(p)
             pts.append(p)
         if not pts:
@@ -155,9 +167,9 @@ class NeuralPipeline:
                 if sel.sum() >= 3:
                     p = tr[f_i][sel]
                     t.points = p.astype(np.float32)
-                    x1, y1 = p.min(0)
-                    x2, y2 = p.max(0)
-                    t.box = np.array([x1, y1, x2, y2], np.float32)
+                    lo = np.percentile(p, self.cfg.box_pct, axis=0)
+                    hi = np.percentile(p, 100 - self.cfg.box_pct, axis=0)
+                    t.box = np.array([lo[0], lo[1], hi[0], hi[1]], np.float32)
                 t.record()
             res.tracks_per_frame.append(
                 [Track(t.track_id, t.box.copy(), t.cls_name,

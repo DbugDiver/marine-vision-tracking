@@ -45,8 +45,47 @@ def banner(img, text, sub=""):
 
 def crop_zoom(img, box):
     import cv2
-    x1, y1, x2, y2 = box
+    x1, y1, x2, y2 = [int(round(v)) for v in box]
     return cv2.resize(img[y1:y2, x1:x2], (PANE_W, PANE_H))
+
+
+class FollowZoom:
+    """Smoothed crop that follows the action instead of a fixed union box.
+
+    Feed it the current frame's object boxes; it EMA-smooths centre and size
+    so the virtual camera drifts rather than jumps, pads tightly, keeps 16:9
+    and clamps to the frame. When nothing is visible it holds its last crop.
+    """
+
+    def __init__(self, W, H, pad=42, alpha=0.08, min_w_frac=0.34):
+        self.W, self.H = W, H
+        self.pad, self.alpha = pad, alpha
+        self.min_w = min_w_frac * W
+        self.state = None            # cx, cy, w
+
+    def update(self, boxes):
+        if boxes:
+            xs1 = min(b[0] for b in boxes) - self.pad
+            ys1 = min(b[1] for b in boxes) - self.pad
+            xs2 = max(b[2] for b in boxes) + self.pad
+            ys2 = max(b[3] for b in boxes) + self.pad
+            cx, cy = (xs1 + xs2) / 2, (ys1 + ys2) / 2
+            w = max(xs2 - xs1, (ys2 - ys1) * 16 / 9, self.min_w)
+            w = min(w, self.W)
+            if self.state is None:
+                self.state = [cx, cy, w]
+            else:
+                a = self.alpha
+                self.state = [self.state[0] + a * (cx - self.state[0]),
+                              self.state[1] + a * (cy - self.state[1]),
+                              self.state[2] + a * (w - self.state[2])]
+        if self.state is None:
+            return 0, 0, self.W, self.H
+        cx, cy, w = self.state
+        h = w * 9 / 16
+        x1 = min(max(cx - w / 2, 0), self.W - w)
+        y1 = min(max(cy - h / 2, 0), self.H - h)
+        return x1, y1, x1 + w, y1 + h
 
 
 def action_box(frames, detector, W, H):
@@ -98,15 +137,16 @@ def main() -> int:
     cap.release()
     H, W = frames[0].shape[:2]
 
-    det = Detector(conf=a.conf, classes=("boat",), device=a.device)
+    det = Detector(conf=a.conf, classes=("boat",), device=a.device,
+                   imgsz=960)   # higher input res: the targets are small
     seg = Segmenter(device=a.device)
-    zoom = action_box(frames, det, W, H)
-    print("zoom box:", zoom)
+    fz = FollowZoom(W, H)
 
     vw = cv2.VideoWriter(a.output, cv2.VideoWriter_fourcc(*"mp4v"), fps,
                          (2 * PANE_W, PANE_H))
 
-    def emit(raw, vis, label, sub=""):
+    def emit(raw, vis, label, sub="", boxes_now=None):
+        zoom = fz.update(boxes_now or [])
         pair = np.hstack([crop_zoom(raw, zoom), crop_zoom(vis, zoom)])
         vw.write(banner(pair, label, sub))
 
@@ -128,14 +168,16 @@ def main() -> int:
     for k in range(n_stage):
         f = frames[i + k]
         vis = f.copy()
-        for d in det(f):
+        dets_now = det(f)
+        for d in dets_now:
             x1, y1, x2, y2 = [int(v) for v in d.box]
             cv2.rectangle(vis, (x1, y1), (x2, y2), (66, 135, 245), 2)
             cv2.putText(vis, f"boat {d.score:.2f}", (x1, max(y1 - 6, 12)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (66, 135, 245), 2,
                         cv2.LINE_AA)
         emit(f, vis, "STAGE 1 / RUNNING YOLO",
-             "per-frame detection, conf shown")
+             "per-frame detection, conf shown",
+             boxes_now=[d.box for d in dets_now])
     i += n_stage
 
     # ---- stage 2: SAM -------------------------------------------------
@@ -146,6 +188,7 @@ def main() -> int:
             boxes = [d.box for d in det(f)]
             masks = seg(f, boxes) if boxes else []
             last_det_frame = k
+        fz_boxes = boxes
         vis = f.copy()
         if masks:
             overlay = vis.copy()
@@ -156,7 +199,7 @@ def main() -> int:
                               np.array(pal[m_i % 6]) * 0.6).astype(np.uint8)
             vis = cv2.addWeighted(overlay, 0.7, vis, 0.3, 0)
         emit(f, vis, "STAGE 2 / RUNNING SAM",
-             "one mask per detection")
+             "one mask per detection", boxes_now=fz_boxes)
     i += n_stage
 
     # ---- stage 3: bootstrap points (brief) -----------------------------
@@ -169,19 +212,21 @@ def main() -> int:
             cv2.circle(vis, (int(px), int(py)), 4, (0, 255, 255), -1)
     for _ in range(int(fps * 1.5)):
         emit(f, vis, "STAGE 3 / BOOTSTRAPPING TRACK POINTS",
-             "query points seeded inside each mask")
+             "query points seeded inside each mask", boxes_now=boxes)
 
     # ---- stage 4: neural tracking -------------------------------------
     pipe = NeuralPipeline(det, seg, NeuralConfig(), device=a.device)
+    seg_len = NeuralConfig().redetect_every
     rest = frames[i:]
-    for s in range(0, len(rest) - 1, 24):
-        chunk = rest[s:s + 24]
+    for s in range(0, len(rest) - 1, seg_len):
+        chunk = rest[s:s + seg_len]
         segr = pipe.run_segment(chunk, i + s)
         for f_i, (fr, trks) in enumerate(zip(segr.frames,
                                              segr.tracks_per_frame)):
             vis = draw_tracks(fr, trks, None, boxes=False)
             emit(fr, vis, "STAGE 4 / NEURAL POINT TRACKING",
-                 "CoTracker3: per-point identity, trails")
+                 "CoTracker3: per-point identity, trails",
+                 boxes_now=[t.box for t in trks])
         print(f"  tracking {s + len(chunk)}/{len(rest)}")
 
     vw.release()
