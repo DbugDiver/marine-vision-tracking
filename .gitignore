@@ -5,4 +5,5 @@ __pycache__/
 runs/
 data/samples/*
 !data/samples/.gitkeep
-media/*.mp4
+media/neural_run.mp4
+media/first_run.mp4

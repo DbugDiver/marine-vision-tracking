@@ -1,5 +1,11 @@
-# Starting point. Pin exact versions once the pipeline works (pip freeze).
-ultralytics>=8.3      # YOLO detection + SAM/SAM2 segmentation
-opencv-python>=4.9    # video I/O, Lucas-Kanade optical flow, drawing
-numpy>=1.26
-torch>=2.2
+# Pinned from the environment the RESULTS.md numbers were measured on
+# (Windows 11, Python 3.12, CUDA 12.8 build of torch).
+# CoTracker3 is NOT a pip package: it loads via torch.hub
+# ("facebookresearch/co-tracker", "cotracker3_offline") on first use.
+ultralytics==8.4.131
+opencv-python==5.0.0.93
+numpy==2.4.6
+torch==2.11.0+cu128
+torchvision==0.26.0+cu128
+pillow==12.3.0
+pytest==9.1.1
