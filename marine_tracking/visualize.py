@@ -13,7 +13,7 @@ def _color(track_id: int) -> tuple[int, int, int]:
 
 
 def draw_tracks(frame_bgr: np.ndarray, tracks, masks=None,
-                trail: int = 50) -> np.ndarray:
+                trail: int = 50, boxes: bool = True) -> np.ndarray:
     import cv2
     out = frame_bgr.copy()
     if masks:
@@ -26,7 +26,8 @@ def draw_tracks(frame_bgr: np.ndarray, tracks, masks=None,
     for t in tracks:
         c = _color(t.track_id)
         x1, y1, x2, y2 = [int(round(v)) for v in t.box]
-        cv2.rectangle(out, (x1, y1), (x2, y2), c, 2)
+        if boxes:
+            cv2.rectangle(out, (x1, y1), (x2, y2), c, 2)
         label = f"#{t.track_id} {t.cls_name}"
         cv2.putText(out, label, (x1, max(y1 - 6, 12)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, c, 2, cv2.LINE_AA)
