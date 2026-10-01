@@ -1,13 +1,8 @@
-__pycache__/
-*.pyc
 .venv/
-venv/
+__pycache__/
 *.pt
 *.pth
-*.onnx
-data/raw/
-outputs/
 runs/
-.DS_Store
-.idea/
-.vscode/
+data/samples/*
+!data/samples/.gitkeep
+media/*.mp4

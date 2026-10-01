@@ -9,7 +9,7 @@ This repo stays **private** until the checklist below is done. Then I'll write t
 - **Footage:**
   - **Preferred:** video you shot yourself, from a shoreline, pier, ferry or boat, with no identifiable faces in focus.
   - **Allowed:** a public dataset **only if its license allows redistributing derived clips and GIFs**. Check before you use it. Don't commit dataset files; add a download script instead.
-  - **Never:** any employer footage, telemetry or logs.
+  - **Employer footage:** one short clip is used **with explicit permission from the employer** (keep the written permission on file; credit the source in RESULTS.md). No telemetry, logs, or anything beyond that clip.
 - **Framing:** no mention of any employer in the code or README. This is an independent project.
 
 ## 2. Target structure
