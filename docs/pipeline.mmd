@@ -1,0 +1,11 @@
+flowchart TB
+    V["Video frames<br/>1280×720 @ 25 fps"]
+    D["YOLO11 detection<br/>class: boat · imgsz 960"]
+    S["SAM2 segmentation<br/>one mask per box"]
+    B["Point bootstrap<br/>query points sampled inside each mask"]
+    T["Point tracking<br/>CoTracker3 (neural) or Lucas-Kanade"]
+    A["ID association<br/>IoU → centroid fallback → max-age expiry"]
+    O["Tracks<br/>id · box · points · trajectory"]
+    R["Renderer<br/>masks · point swarms · trails"]
+    V --> D -->|boxes| S -->|masks| B --> T -->|points per object| A --> O --> R
+    A -.->|"re-detect every N frames<br/>(or early if a track starves)"| D
