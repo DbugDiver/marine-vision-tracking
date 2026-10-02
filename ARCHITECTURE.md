@@ -1,84 +1,81 @@
 # Architecture
 
-Detection, segmentation and point tracking of boats on water video. Water is a
-hostile setting for every stage: glare and wave crests look like objects,
-points drift onto moving water texture, targets are small and distant, and the
-camera itself moves.
+The pipeline detects, segments and tracks boats in water video. Water makes every stage harder:
+
+- glare and wave crests get picked up as objects;
+- tracked points slide off onto the moving water;
+- targets are small and far away;
+- the camera moves.
 
 ## Pipeline
 
-```mermaid
-flowchart LR
-    V[video frames] --> D[YOLO detection<br/>yolo11n, imgsz 960]
-    D -->|boxes| S[SAM segmentation<br/>sam2_b, one mask per box]
-    S -->|masks| B[point bootstrap<br/>query points sampled inside mask]
-    B --> T[point tracking<br/>CoTracker3 neural / LK optical flow]
-    T -->|points per object| A[ID association<br/>IoU + centroid fallback, max-age]
-    A --> O[tracks: id, box, points, trajectory]
-    O --> R[renderer<br/>masks, point swarms, trails]
-    A -. re-detection every N frames .-> D
-```
+<p align="center">
+  <img src="docs/pipeline.png" alt="Pipeline diagram" width="420">
+</p>
+
+Diagram source: [`docs/pipeline.mmd`](docs/pipeline.mmd)
 
 ## Modules
 
-| module | responsibility |
+| file | what it does |
 |---|---|
-| `marine_tracking/detect.py` | YOLO wrapper; lazy load; plain-numpy `Detection` out |
-| `marine_tracking/segment.py` | SAM wrapper; falls back to the filled box on a failed mask |
-| `marine_tracking/track.py` | LK point tracking, median-motion gate, IoU/centroid association, expiry — pure functions, unit-tested |
-| `marine_tracking/pipeline.py` | per-frame glue for the LK backend; re-detection cadence with point-starvation override |
-| `marine_tracking/neural_pipeline.py` | segment-based glue for CoTracker3; identity carried per query point |
-| `marine_tracking/visualize.py` | masks, points, ids, trails; box-free mode |
-| `scripts/run_video.py` | CLI, LK backend |
-| `scripts/run_video_neural.py` | CLI, neural backend |
-| `scripts/make_demo.py` | staged showcase video with the follow-zoom virtual camera |
-| `scripts/benchmark.py` | the RESULTS.md measurement matrix |
-| `scripts/download_sample.py` | CC BY-SA sample clip downloader (attribution in header) |
+| `marine_tracking/detect.py` | YOLO wrapper. Loads the model lazily and returns plain-numpy `Detection`s |
+| `marine_tracking/segment.py` | SAM wrapper. If a mask fails, it uses the filled box instead |
+| `marine_tracking/track.py` | LK point tracking, median-motion gate, IoU/centroid association, expiry. Pure functions with unit tests |
+| `marine_tracking/pipeline.py` | Per-frame glue for the LK backend. Handles re-detection cadence, plus early re-detect when a track runs low on points |
+| `marine_tracking/neural_pipeline.py` | Segment-based glue for CoTracker3. Each query point carries a track ID |
+| `marine_tracking/visualize.py` | Draws masks, points, IDs and trails. Can draw without boxes |
+| `scripts/run_video.py` | CLI for the LK backend |
+| `scripts/run_video_neural.py` | CLI for the CoTracker3 backend |
+| `scripts/make_demo.py` | Builds the staged demo video, with the follow-zoom virtual camera |
+| `scripts/benchmark.py` | Produces the numbers in RESULTS.md |
+| `scripts/download_sample.py` | Downloads the CC BY-SA sample clip (attribution is in the file header) |
 
-## Design decisions, and why
+## Design decisions
 
-**Re-detection cadence.** YOLO + SAM every frame is the accuracy ceiling and
-the FPS floor. Detection runs every N frames; between detections, objects
-coast on their tracked points (LK: box shifted by median point motion;
-neural: box re-derived from the points every frame). A track that starves
-below a minimum point count forces an early re-detect.
+### How often to re-detect
 
-**Masks gate the points.** A detection box on water is mostly water. Points
-are seeded only inside the SAM mask, so they start on the object, not on the
-wake beside it.
+Running YOLO and SAM every frame gives the best detections but the lowest FPS. So detection runs every N frames, and in between, objects coast on their tracked points:
 
-**Median-motion gate (LK backend).** A point that latched onto a wave crest
-moves with the water, not the boat. Any point whose displacement disagrees
-with the object's median displacement beyond a tolerance is dropped.
+- **LK backend:** each box shifts by the median motion of its points.
+- **CoTracker3 backend:** each box is rebuilt from its points every frame.
 
-**Identity lives on the points, not the boxes (neural backend).** Each
-CoTracker3 query point belongs to exactly one track id. The box is derived
-from the points (8/92 percentile, so one stray point cannot balloon it), not
-the other way round.
+If a track drops below a minimum number of points, it triggers a re-detect early.
 
-**Point carry-over across re-inits.** The neural tracker's queries are fixed
-at init, so the pipeline re-initialises it at every re-detection boundary. A
-track the detector MISSES at that boundary keeps its surviving points as
-queries — identity outlives a detection gap instead of a new id being minted.
-This was the single largest reducer of id churn.
+### Points only inside the mask
 
-**Association is pure and tested.** Greedy best-IoU first, then a
-centroid-distance pass for leftovers (rescues re-detections whose box drifted
-past IoU overlap), then a max-age expiry. All numpy, no models — the unit
-tests run in milliseconds.
+A detection box on water is mostly water. Points are seeded only inside the SAM mask, so they start on the boat and not on the wake next to it.
 
-**Fail visible, degrade gracefully.** A failed SAM mask falls back to the
-filled box rather than dropping the object; an occluded track coasts and
-expires on a counter rather than vanishing the frame a detection blinks.
+### Median-motion gate (LK)
 
-## Known limitations (honest list)
+A point stuck on a wave crest moves with the water, not the boat. If a point's motion is too far from the median motion of its object, it gets dropped.
 
-- Small distant boats flicker at the detector's confidence floor; each
-  reappearance beyond max-age mints a new id. Mitigated by carry-over and
-  cadence, not solved.
-- No global camera-motion compensation yet; trajectories are image-space, not
-  world-stable.
-- The neural backend's memory grows with segment length (whole segment on
-  GPU); 48 frames at 720p is comfortable on 16 GB.
-- Overlapping boats can merge into one detection at crossings; association
-  keeps ids through brief merges but a long merge swaps ids.
+### Identity belongs to points (CoTracker3)
+
+Every CoTracker3 query point belongs to exactly one track ID. The box comes from the points (8th/92nd percentile, so one stray point can't stretch it), not the other way round.
+
+### Keeping points across re-inits
+
+CoTracker3 queries are fixed when the tracker starts, so the tracker gets re-initialized at every re-detection. Sometimes the detector misses a boat at that exact frame. When that happens, the boat's surviving points are passed in as queries again, so it keeps its ID through the gap. This cut new IDs more than any other change.
+
+### Association logic is pure and tested
+
+Matching runs in three steps:
+
+1. Greedy best-IoU matching.
+2. A centroid-distance pass for anything left over. This catches re-detections whose box drifted too far for IoU to match.
+3. A max-age rule that expires old tracks.
+
+It's all numpy with no models, so the tests run in milliseconds.
+
+### Degrade instead of dropping
+
+- If SAM fails on a box, the filled box is used as the mask, so the object is still tracked.
+- If a track is occluded, it coasts and expires after a counter runs out. It doesn't disappear the first frame a detection blinks out.
+
+## Known limitations
+
+- **Small far-away boats** flicker around the confidence threshold. If one is gone longer than max-age, it comes back with a new ID. Carry-over and cadence help, but don't fix it.
+- **No camera-motion compensation yet.** Trajectories are in image space, not world space.
+- **CoTracker3 memory grows with segment length**, because the whole segment sits on the GPU. 48 frames at 720p fits easily in 16 GB.
+- **Boats that overlap while crossing** can merge into one detection. Short merges keep their IDs; long ones can swap them.

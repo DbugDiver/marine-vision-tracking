@@ -1,8 +1,8 @@
 """Point tracking and ID association.
 
-Two separable pieces, kept separable on purpose:
+Two separate pieces:
 
-1. PointTracker - Lucas-Kanade optical flow on points seeded INSIDE each
+1. PointTracker - Lucas-Kanade optical flow on points seeded inside each
    object's mask, with a median-motion gate: a point whose displacement
    disagrees with the object's median displacement is dropped (on water the
    usual offender is a point that latched onto a wave crest or glare, which

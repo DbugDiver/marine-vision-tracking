@@ -11,7 +11,7 @@ Integration shape: the online model consumes frames in strides of
 pipeline re-initialises the tracker at every re-detection boundary: YOLO+SAM
 give fresh masks, points are re-seeded inside the masks (plus survivors from
 the previous segment), and the tracker runs the next segment. Object
-identity is carried by WHICH QUERY BELONGS TO WHICH TRACK, not by box IoU -
+identity is carried by which query point belongs to which track, not by box IoU -
 the per-point id map is the association.
 """
 from __future__ import annotations
@@ -91,8 +91,8 @@ class NeuralPipeline:
         masks = self.segmenter(frame_bgr, boxes) if boxes else []
         matches, unmatched_t, unmatched_d = associate(
             self.tracks, boxes, self.cfg.iou_thr, self.cfg.dist_thr)
-        # Build the id -> detection map BEFORE expiry: `matches` indexes the
-        # CURRENT tracks list, and expire_tracks() renumbers it. The first
+        # Build the id -> detection map before expiry: `matches` indexes the
+        # current tracks list, and expire_tracks() renumbers it. The first
         # version of this method mapped after expiry and crashed on the first
         # clip where a track actually expired.
         det_mask_of_track: dict[int, int] = {}
@@ -125,7 +125,7 @@ class NeuralPipeline:
         res.masks = masks
 
         # queries: per live track, points inside its mask on frame 0 - and
-        # for tracks the detector MISSED this boundary, their surviving points
+        # for tracks the detector missed this boundary, their surviving points
         # from the previous segment, so identity outlives a detection gap
         owners: list[int] = []
         pts: list[np.ndarray] = []

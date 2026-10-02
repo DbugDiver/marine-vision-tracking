@@ -5,8 +5,7 @@
     python scripts/run_video.py --input clip.mp4 --output out.mp4 \
         --redetect-every 10 --side-by-side --conf 0.25
 
-Prints a timing summary at the end - those numbers go in RESULTS.md verbatim,
-never rounded up.
+Prints a timing summary at the end.
 """
 from __future__ import annotations
 

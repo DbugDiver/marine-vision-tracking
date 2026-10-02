@@ -1,9 +1,9 @@
 """SAM segmentation wrapper: frame + boxes -> one boolean mask per box.
 
-Why segment at all: on water, a detection box is mostly NOT the object - it
-is waves, wake and glare around a hull. Points seeded in the whole box latch
+Why segment at all: on water, a detection box is mostly not the object. It's
+waves, wake and glare around a hull. Points seeded in the whole box latch
 onto water texture and drift; points seeded inside the mask stay on the
-object. The mask is the point tracker's permission slip.
+object.
 
 Uses Ultralytics' SAM interface so detection and segmentation share one
 dependency. Default weights are the small SAM2 checkpoint; mobile_sam is a
@@ -32,7 +32,7 @@ class Segmenter:
 
         A failed mask (empty result) falls back to the filled box, so the
         pipeline degrades to box-seeded tracking rather than dropping the
-        object - degrade gracefully, never disappear.
+        object.
         """
         h, w = frame_bgr.shape[:2]
         if not boxes_xyxy:

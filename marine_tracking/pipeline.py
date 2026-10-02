@@ -1,10 +1,10 @@
 """Glue: detect -> segment -> track per frame, with a re-detection cadence.
 
-The central performance idea: YOLO + SAM every frame is slow; LK flow is
+Main idea: YOLO + SAM every frame is slow; LK flow is
 cheap. So run the heavy models every `redetect_every` frames and coast on
 point tracking in between, shifting each track's box by its points' median
-motion. The FPS-vs-accuracy trade-off for N = 1 / 5 / 10 is a headline
-measurement in RESULTS.md.
+motion. The FPS-vs-accuracy trade-off for N = 1 / 5 / 10 is measured
+in RESULTS.md.
 """
 from __future__ import annotations
 

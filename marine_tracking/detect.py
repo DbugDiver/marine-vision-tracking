@@ -6,7 +6,7 @@ model; on water the relevant COCO class is 'boat' (id 8), but the filter is
 configurable because buoys and paddleboards show up as other classes or not
 at all, and a fine-tune may come later.
 
-Thresholds here are DELIBERATELY unset in code and chosen per run: the right
+Thresholds here are deliberately unset in code and chosen per run: the right
 confidence floor depends on the footage (glare, target size, camera motion),
 so it is a CLI argument, and the measured trade-off goes in RESULTS.md.
 """
